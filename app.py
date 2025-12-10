@@ -202,10 +202,10 @@ if not df_filtered.empty:
     for idx in link_target_indices:
         if idx < len(df_filtered.columns):
             col_name = df_filtered.columns[idx]
-            # 해당 컬럼을 LinkColumn으로 설정 (display_text는 '🔗 접속'으로 통일하거나, None이면 URL 그대로 노출)
+            # 해당 컬럼을 LinkColumn으로 설정 (display_text는 '🔗 확인하기'으로 통일하거나, None이면 URL 그대로 노출)
             column_config_settings[col_name] = st.column_config.LinkColumn(
                 label=col_name,
-                display_text="🔗 접속"  # URL이 너무 길면 지저분하므로 '접속'이라는 글자로 대체 (원하시면 이 줄 삭제)
+                display_text="🔗 확인하기"  # URL이 너무 길면 지저분하므로 '확인하기'이라는 글자로 대체 (원하시면 이 줄 삭제)
             )
 
 tab1, tab2, tab3 = st.tabs(["📅 일정현황", "📝 방문결과", "📊 관리현황"])
@@ -242,3 +242,4 @@ if not df_filtered.empty:
         )
 else:
     st.info("조건에 맞는 데이터가 없습니다.")
+

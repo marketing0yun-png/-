@@ -2,127 +2,121 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-# Page configuration
-st.set_page_config(page_title="체험단 관리현황", layout="wide")
+# -------------------------
+# 1. 페이지 기본 설정
+# -------------------------
+st.set_page_config(
+    page_title="체험단 관리 대시보드", 
+    page_icon="📊", 
+    layout="wide"
+)
 
-# Title
-st.title("체험단 관리현황")
+# 제목 (Markdown 활용)
+st.markdown("## 📊 체험단 운영/관리 대시보드")
+st.markdown("---")
 
 # Google Sheet ID
 SHEET_ID = "1JBQaSh7c1nla17u2OG0Tynp-mGYD7cRVSABIzZRYdCE"
 SHEET_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv"
 
-@st.cache_data(ttl=600)  # 10분 캐시
+@st.cache_data(ttl=600)
 def load_data(url):
     try:
         df = pd.read_csv(url)
         return df
     except Exception as e:
-        st.error(f"데이터를 불러오는 중 오류가 발생했습니다: {e}")
+        st.error(f"데이터 로드 실패: {e}")
         return None
 
 # -------------------------
-# LOGIN FUNCTION (TOML MODE)
+# LOGIN FUNCTION
 # -------------------------
 def check_password():
     """Returns True if the correct password was entered."""
-
     def password_entered():
-        # 세션에서 입력값 가져오기
         username = st.session_state.get("username", "")
         password = st.session_state.get("password", "")
 
         if "users" not in st.session_state["secrets"]:
-            st.error("Secrets 설정이 잘못되었습니다. [users] 섹션을 확인하세요.")
+            st.error("Secrets 설정 오류: .streamlit/secrets.toml 파일을 확인하세요.")
             return
 
-        # 유저 존재 & 비밀번호 확인
         if username in st.session_state["secrets"]["users"]:
             if st.session_state["secrets"]["users"][username] == password:
                 st.session_state["password_correct"] = True
                 st.session_state["current_user"] = username
                 st.session_state["allowed_stores"] = \
                     st.session_state["secrets"].get("stores", {}).get(username, [])
-                
-                # 비밀번호 세션 삭제 (보안)
-                if "password" in st.session_state:
-                    del st.session_state["password"]
+                if "password" in st.session_state: del st.session_state["password"]
                 return
-
         st.session_state["password_correct"] = False
 
-    # UI 렌더링
     if st.session_state.get("password_correct", False):
         return True
 
-    st.text_input("아이디 (Username)", key="username")
-    st.text_input("비밀번호 (Password)", type="password", key="password", on_change=password_entered)
-    
-    if "password_correct" in st.session_state and not st.session_state["password_correct"]:
-        st.error("😕 아이디가 없거나 비밀번호가 틀렸습니다.")
-        
+    # 로그인 화면
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.info("🔒 관계자 외 접속을 제한합니다.")
+        st.text_input("아이디 (Username)", key="username")
+        st.text_input("비밀번호 (Password)", type="password", key="password", on_change=password_entered)
+        if "password_correct" in st.session_state and not st.session_state["password_correct"]:
+            st.error("😕 로그인 정보가 올바르지 않습니다.")
     return False
 
 # -------------------------
 # MAIN APP LOGIC
 # -------------------------
 
-# Secrets 로드
 if "secrets" not in st.session_state:
     try:
         st.session_state["secrets"] = st.secrets
     except FileNotFoundError:
-        st.error("secrets.toml 파일을 찾을 수 없습니다.")
+        st.error("secrets.toml 없음")
         st.stop()
 
-# LOGIN CHECK
 if not check_password():
     st.stop()
 
-# 데이터 로드
 df = load_data(SHEET_URL)
 if df is None:
     st.stop()
 
-# 로그인 완료 변수
 current_user = st.session_state["current_user"]
 allowed_stores = st.session_state["allowed_stores"]
 
-# Sidebar
+# -------------------------
+# SIDEBAR
+# -------------------------
 with st.sidebar:
-    st.success(f"접속자: {current_user}")
-
+    st.header(f"👋 반가워요, {current_user}님")
+    st.markdown("---")
+    
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("로그아웃"):
-            for key in ["password_correct", "current_user", "allowed_stores", "username"]:
-                if key in st.session_state:
-                    del st.session_state[key]
-            st.rerun()
-    with col2:
-        if st.button("데이터 갱신"):
+        if st.button("🔄 갱신", use_container_width=True):
             load_data.clear()
             st.rerun()
-
-    st.divider()
+    with col2:
+        if st.button("🚪 로그아웃", use_container_width=True):
+            for key in ["password_correct", "current_user", "allowed_stores", "username"]:
+                if key in st.session_state: del st.session_state[key]
+            st.rerun()
+            
+    st.info("💡 데이터는 10분마다 자동 갱신됩니다.")
 
 # -------------------------
 # FILTERING
 # -------------------------
 
-# 컬럼 수 확인 (F, O, P, Q열은 각각 인덱스 5, 14, 15, 16이므로 최소 17개 이상 필요)
 if len(df.columns) >= 17:
-
-    # --- 1. 날짜 파싱 (Column I = Index 8) ---
     date_col_name = df.columns[8]
 
     def parse_date(val):
         if pd.isna(val): return pd.NaT
         val = str(val).strip()
-        
         parsed = pd.to_datetime(val, errors="coerce")
         if pd.notna(parsed): return parsed
-
         try:
             current_year = datetime.now().year
             parsed = pd.to_datetime(f"{current_year}/" + val, format="%Y/%m/%d", errors="coerce")
@@ -134,7 +128,6 @@ if len(df.columns) >= 17:
     df = df[df["parsed_date"].notna()]
     df[date_col_name] = df["parsed_date"].dt.strftime("%Y-%m-%d")
 
-    # --- 2. 매장 필터 (Column D = Index 3) ---
     filter_col_name = df.columns[3]
     unique_values = df[filter_col_name].unique()
 
@@ -142,11 +135,11 @@ if len(df.columns) >= 17:
         options = ["All"] + list(unique_values)
     else:
         options = [s for s in allowed_stores if s in unique_values]
-        if not options:
-            options = ["접근 권한 없음"]
+        if not options: options = ["접근 권한 없음"]
 
+    st.sidebar.subheader("🔍 검색 필터")
     selected_store = st.sidebar.selectbox(
-        f"매장 선택 ({filter_col_name})",
+        f"매장 선택",
         options,
         key=f"store_selector_{current_user}"
     )
@@ -158,19 +151,18 @@ if len(df.columns) >= 17:
     else:
         df_filtered = df[df[filter_col_name] == selected_store].copy()
 
-    # --- 3. 날짜 범위 필터 ---
-    st.sidebar.subheader("기간 설정")
     if not df_filtered.empty:
         df_dates = df_filtered["parsed_date"]
-        min_date = df_dates.min().date()
-        max_date = df_dates.max().date()
-
+        min_date, max_date = df_dates.min().date(), df_dates.max().date()
+        
+        # 달력 포맷 지정 (YYYY-MM-DD)
         date_range = st.sidebar.date_input(
-            "날짜 범위 선택",
+            "날짜 범위",
             value=(min_date, max_date),
             min_value=min_date,
             max_value=max_date,
-            key=f"date_range_{current_user}"
+            key=f"date_range_{current_user}",
+            format="YYYY-MM-DD" 
         )
 
         if len(date_range) == 2:
@@ -185,16 +177,34 @@ if len(df.columns) >= 17:
     df_filtered.index = df_filtered.index + 1
 
 else:
-    st.error(f"데이터 형식이 올바르지 않습니다. (컬럼 수 부족: 현재 {len(df.columns)}개)")
+    st.error("데이터 컬럼 부족")
     df_filtered = pd.DataFrame()
 
 
 # -------------------------
-# TABS & DISPLAY (Hyperlink Added)
+# DASHBOARD METRICS
+# -------------------------
+if not df_filtered.empty:
+    st.markdown("### 📈 현황 요약")
+    
+    m1, m2, m3 = st.columns(3)
+    
+    total_count = len(df_filtered)
+    today_count = len(df_filtered[df_filtered["parsed_date"].dt.date == datetime.now().date()])
+    
+    with m1:
+        st.metric(label="전체 조회 건수", value=f"{total_count}건")
+    with m2:
+        st.metric(label="오늘 일정", value=f"{today_count}건", delta=f"기준: {datetime.now().strftime('%m-%d')}")
+    with m3:
+        st.metric(label="선택된 매장", value=selected_store)
+        
+    st.markdown("---")
+
+# -------------------------
+# TABS & DISPLAY
 # -------------------------
 
-# 하이퍼링크 설정을 위한 사전 준비
-# F열(5), O열(14), P열(15), Q열(16)
 link_target_indices = [5, 14, 15, 16]
 column_config_settings = {}
 
@@ -202,44 +212,79 @@ if not df_filtered.empty:
     for idx in link_target_indices:
         if idx < len(df_filtered.columns):
             col_name = df_filtered.columns[idx]
-            # 해당 컬럼을 LinkColumn으로 설정 (display_text는 '🔗 확인하기'으로 통일하거나, None이면 URL 그대로 노출)
             column_config_settings[col_name] = st.column_config.LinkColumn(
                 label=col_name,
-                display_text="🔗 확인하기"  # URL이 너무 길면 지저분하므로 '확인하기'이라는 글자로 대체 (원하시면 이 줄 삭제)
+                display_text="🔗 바로가기"
             )
 
-tab1, tab2, tab3 = st.tabs(["📅 일정현황", "📝 방문결과", "📊 관리현황"])
+# 권한별 탭 구성
+if current_user == "admin":
+    tab_list = ["📅 일정현황", "📝 방문결과", "📊 관리현황"]
+else:
+    tab_list = ["📅 일정현황", "📝 방문결과"]
+
+tabs = st.tabs(tab_list)
 
 if not df_filtered.empty:
-    with tab1:
-        st.subheader("일정현황")
-        # F열(5) 포함됨
+    # --- 1. 일정현황 ---
+    with tabs[0]:
+        st.subheader("📅 일정 리스트")
         target_indices = [8, 9, 2, 10, 4, 5, 6] 
         st.dataframe(
             df_filtered.iloc[:, target_indices], 
-            column_config=column_config_settings, # 링크 설정 적용
+            column_config=column_config_settings,
             use_container_width=True
         )
 
-    with tab2:
-        st.subheader("방문결과")
-        # O열(14), P열(15), Q열(16) 포함됨
+    # --- 2. 방문결과 ---
+    with tabs[1]:
+        st.subheader("📝 결과 리포트")
         target_indices = [8, 14, 10, 17, 15, 16]
         st.dataframe(
             df_filtered.iloc[:, target_indices], 
-            column_config=column_config_settings, # 링크 설정 적용
+            column_config=column_config_settings,
             use_container_width=True
         )
 
-    with tab3:
-        st.subheader("관리현황")
-        # O열(14), P열(15), Q열(16) 포함됨
-        target_indices = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
-        st.dataframe(
-            df_filtered.iloc[:, target_indices], 
-            column_config=column_config_settings, # 링크 설정 적용
-            use_container_width=True
-        )
+    # --- 3. 관리현황 (Admin Only) ---
+    if current_user == "admin":
+        with tabs[2]:
+            # 관리현황 데이터 준비
+            target_indices = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
+            admin_df = df_filtered.iloc[:, target_indices]
+
+            # [UI Upgrade] 제목과 미처리 현황을 좌우로 배치
+            header_col, metric_col = st.columns([1, 4]) 
+            
+            with header_col:
+                st.subheader("📊 상세 관리")
+            
+            with metric_col:
+                # 미처리(NaN/None) 값 카운팅 로직
+                null_counts = admin_df.isnull().sum()
+                # 미처리 건수가 1개 이상인 컬럼만 필터링
+                pending_tasks = null_counts[null_counts > 0]
+
+                if not pending_tasks.empty:
+                    # 미처리 항목 수만큼 컬럼 자동 생성
+                    cols = st.columns(len(pending_tasks))
+                    for idx, (col_name, count) in enumerate(pending_tasks.items()):
+                        with cols[idx]:
+                            # 빨간색 역삼각형(delta_color="inverse")으로 경고 표시
+                            st.metric(
+                                label=f"🚨 {col_name} 미처리", 
+                                value=f"{count}건", 
+                                delta="작성 필요",
+                                delta_color="inverse"
+                            )
+                else:
+                    st.success("✅ 모든 항목이 빠짐없이 입력되었습니다! (미처리 업무 없음)")
+
+            # 데이터프레임 표시
+            st.dataframe(
+                admin_df, 
+                column_config=column_config_settings,
+                use_container_width=True
+            )
 else:
-    st.info("조건에 맞는 데이터가 없습니다.")
-
+    st.warning("⚠️ 선택하신 조건에 맞는 데이터가 없습니다. 필터를 변경해 보세요.")

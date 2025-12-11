@@ -3,12 +3,13 @@ import pandas as pd
 from datetime import datetime
 
 # -------------------------
-# 1. 페이지 기본 설정
+# 1. 페이지 기본 설정 (모바일 최적화)
 # -------------------------
 st.set_page_config(
     page_title="체험단 관리 대시보드", 
     page_icon="📊", 
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="auto"  # [중요] 모바일에서는 자동으로 사이드바를 접어줍니다.
 )
 
 # 제목 (Markdown 활용)
@@ -32,7 +33,6 @@ def load_data(url):
 # LOGIN FUNCTION
 # -------------------------
 def check_password():
-    """Returns True if the correct password was entered."""
     def password_entered():
         username = st.session_state.get("username", "")
         password = st.session_state.get("password", "")
@@ -54,7 +54,6 @@ def check_password():
     if st.session_state.get("password_correct", False):
         return True
 
-    # 로그인 화면
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.info("🔒 관계자 외 접속을 제한합니다.")
@@ -155,7 +154,6 @@ if len(df.columns) >= 17:
         df_dates = df_filtered["parsed_date"]
         min_date, max_date = df_dates.min().date(), df_dates.max().date()
         
-        # 달력 포맷 지정 (YYYY-MM-DD)
         date_range = st.sidebar.date_input(
             "날짜 범위",
             value=(min_date, max_date),
@@ -202,7 +200,7 @@ if not df_filtered.empty:
     st.markdown("---")
 
 # -------------------------
-# TABS & DISPLAY
+# TABS & DISPLAY (모바일 최적화: hide_index=True)
 # -------------------------
 
 link_target_indices = [5, 14, 15, 16]
@@ -217,7 +215,6 @@ if not df_filtered.empty:
                 display_text="🔗 바로가기"
             )
 
-# 권한별 탭 구성
 if current_user == "admin":
     tab_list = ["📅 일정현황", "📝 방문결과", "📊 관리현황"]
 else:
@@ -233,7 +230,8 @@ if not df_filtered.empty:
         st.dataframe(
             df_filtered.iloc[:, target_indices], 
             column_config=column_config_settings,
-            use_container_width=True
+            use_container_width=True,
+            hide_index=True  # [모바일 최적화] 왼쪽 숫자 제거로 공간 확보
         )
 
     # --- 2. 방문결과 ---
@@ -243,34 +241,29 @@ if not df_filtered.empty:
         st.dataframe(
             df_filtered.iloc[:, target_indices], 
             column_config=column_config_settings,
-            use_container_width=True
+            use_container_width=True,
+            hide_index=True  # [모바일 최적화]
         )
 
     # --- 3. 관리현황 (Admin Only) ---
     if current_user == "admin":
         with tabs[2]:
-            # 관리현황 데이터 준비
             target_indices = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
             admin_df = df_filtered.iloc[:, target_indices]
 
-            # [UI Upgrade] 제목과 미처리 현황을 좌우로 배치
             header_col, metric_col = st.columns([1, 4]) 
             
             with header_col:
                 st.subheader("📊 상세 관리")
             
             with metric_col:
-                # 미처리(NaN/None) 값 카운팅 로직
                 null_counts = admin_df.isnull().sum()
-                # 미처리 건수가 1개 이상인 컬럼만 필터링
                 pending_tasks = null_counts[null_counts > 0]
 
                 if not pending_tasks.empty:
-                    # 미처리 항목 수만큼 컬럼 자동 생성
                     cols = st.columns(len(pending_tasks))
                     for idx, (col_name, count) in enumerate(pending_tasks.items()):
                         with cols[idx]:
-                            # 빨간색 역삼각형(delta_color="inverse")으로 경고 표시
                             st.metric(
                                 label=f"🚨 {col_name} 미처리", 
                                 value=f"{count}건", 
@@ -280,11 +273,11 @@ if not df_filtered.empty:
                 else:
                     st.success("✅ 모든 항목이 빠짐없이 입력되었습니다! (미처리 업무 없음)")
 
-            # 데이터프레임 표시
             st.dataframe(
                 admin_df, 
                 column_config=column_config_settings,
-                use_container_width=True
+                use_container_width=True,
+                hide_index=True  # [모바일 최적화]
             )
 else:
     st.warning("⚠️ 선택하신 조건에 맞는 데이터가 없습니다. 필터를 변경해 보세요.")

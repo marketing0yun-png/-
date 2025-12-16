@@ -3,16 +3,16 @@ import pandas as pd
 from datetime import datetime
 
 # -------------------------
-# 1. 페이지 기본 설정 (모바일 최적화)
+# 1. 페이지 기본 설정
 # -------------------------
 st.set_page_config(
     page_title="체험단 관리 대시보드", 
     page_icon="📊", 
     layout="wide",
-    initial_sidebar_state="auto"  # [중요] 모바일에서는 자동으로 사이드바를 접어줍니다.
+    initial_sidebar_state="auto"
 )
 
-# 제목 (Markdown 활용)
+# 제목
 st.markdown("## 📊 체험단 운영/관리 대시보드")
 st.markdown("---")
 
@@ -46,7 +46,7 @@ def check_password():
                 st.session_state["password_correct"] = True
                 st.session_state["current_user"] = username
                 st.session_state["allowed_stores"] = \
-                    st.session_state["secrets"].get("stores", {}).get(username, [])
+                    st.session_state["secrets"].get("stores", {},).get(username, [])
                 if "password" in st.session_state: del st.session_state["password"]
                 return
         st.session_state["password_correct"] = False
@@ -105,10 +105,11 @@ with st.sidebar:
     st.info("💡 데이터는 10분마다 자동 갱신됩니다.")
 
 # -------------------------
-# FILTERING
+# DATA PRE-PROCESSING & FILTERING
 # -------------------------
 
 if len(df.columns) >= 17:
+    # 1. 날짜 컬럼 (I열, Index 8) 파싱 - *NaN 제거하지 않고 살려둠*
     date_col_name = df.columns[8]
 
     def parse_date(val):
@@ -124,9 +125,13 @@ if len(df.columns) >= 17:
             return pd.NaT
 
     df["parsed_date"] = df.iloc[:, 8].apply(parse_date)
-    df = df[df["parsed_date"].notna()]
     df[date_col_name] = df["parsed_date"].dt.strftime("%Y-%m-%d")
 
+    # 2. [요청반영] A열 (Index 0) 날짜 형식 변환 (시간 제거, YYYY-MM-DD)
+    col_a_name = df.columns[0]
+    df[col_a_name] = pd.to_datetime(df.iloc[:, 0], errors="coerce").dt.strftime("%Y-%m-%d")
+
+    # 3. 매장 필터 (D열, Index 3)
     filter_col_name = df.columns[3]
     unique_values = df[filter_col_name].unique()
 
@@ -143,15 +148,21 @@ if len(df.columns) >= 17:
         key=f"store_selector_{current_user}"
     )
 
+    # 매장 필터 적용 (여기서 df_store 생성)
     if selected_store == "All":
-        df_filtered = df.copy()
+        df_store = df.copy()
     elif selected_store == "접근 권한 없음":
-        df_filtered = pd.DataFrame(columns=df.columns)
+        df_store = pd.DataFrame(columns=df.columns)
     else:
-        df_filtered = df[df[filter_col_name] == selected_store].copy()
+        df_store = df[df[filter_col_name] == selected_store].copy()
 
-    if not df_filtered.empty:
-        df_dates = df_filtered["parsed_date"]
+    # 4. 날짜 범위 필터 (I열 기준)
+    df_valid_dates = df_store[df_store["parsed_date"].notna()]
+    
+    start_date, end_date = None, None
+    
+    if not df_valid_dates.empty:
+        df_dates = df_valid_dates["parsed_date"]
         min_date, max_date = df_dates.min().date(), df_dates.max().date()
         
         date_range = st.sidebar.date_input(
@@ -165,30 +176,74 @@ if len(df.columns) >= 17:
 
         if len(date_range) == 2:
             start_date, end_date = date_range
-            df_filtered = df_filtered[
-                (df_filtered["parsed_date"].dt.date >= start_date) &
-                (df_filtered["parsed_date"].dt.date <= end_date)
-            ]
+    
+    # [데이터 분기점]
+    # df_main: 날짜 필터가 적용된 데이터 (기존 탭 1, 2, 3용)
+    if start_date and end_date:
+        df_main = df_valid_dates[
+            (df_valid_dates["parsed_date"].dt.date >= start_date) &
+            (df_valid_dates["parsed_date"].dt.date <= end_date)
+        ]
+    else:
+        df_main = df_valid_dates # 날짜 범위 선택 전이면 유효한 날짜 전체
 
-    df_filtered = df_filtered.sort_values(by="parsed_date", ascending=False)
-    df_filtered.reset_index(drop=True, inplace=True)
-    df_filtered.index = df_filtered.index + 1
+    # 정렬 및 인덱스 리셋 (Main 데이터)
+    df_main = df_main.sort_values(by="parsed_date", ascending=False)
+    df_main.reset_index(drop=True, inplace=True)
+    df_main.index = df_main.index + 1
+
+    # df_store: 날짜 필터 적용 안 된 전체 데이터 (신규 탭 4용 - I열 없어도 나옴)
+    # 접수일(A열) 기준으로 정렬
+    df_store = df_store.sort_values(by=col_a_name, ascending=False)
+    df_store.reset_index(drop=True, inplace=True)
+    df_store.index = df_store.index + 1
 
 else:
     st.error("데이터 컬럼 부족")
-    df_filtered = pd.DataFrame()
+    df_main = pd.DataFrame()
+    df_store = pd.DataFrame()
 
 
 # -------------------------
-# DASHBOARD METRICS
+# DASHBOARD METRICS (Main 기준)
 # -------------------------
-if not df_filtered.empty:
+if not df_main.empty:
     st.markdown("### 📈 현황 요약")
+
+    # 1. 오늘 데이터 필터링
+    today_df = df_main[df_main["parsed_date"].dt.date == datetime.now().date()]
     
+    # [요청사항 수정] 오늘 일정을 최상단에, 펼쳐진 상태(expander X)로 배치
+    if not today_df.empty:
+        st.markdown(f"**📋 오늘 방문 일정 ({len(today_df)}건)**")
+        
+        # 순서 변경: 시간(J/9) -> 이름(C/2) -> 참여유형(E/4) -> 선택키워드(K/10)
+        today_details_indices = [9, 2, 4, 10]
+        today_display_df = today_df.iloc[:, today_details_indices]
+
+        # 컬럼 설정 (이름 변경 및 너비 조정)
+        today_column_config = {
+            df.columns[9]: st.column_config.TextColumn("방문시간", width="small"),
+            df.columns[2]: st.column_config.TextColumn("이름", width="medium"),
+            df.columns[4]: st.column_config.TextColumn("참여유형", width="medium"),
+            df.columns[10]: st.column_config.TextColumn("선택키워드", width="large"),
+        }
+        
+        st.dataframe(
+            today_display_df,
+            column_config=today_column_config,
+            use_container_width=True,
+            hide_index=True
+        )
+    else:
+        st.info("📌 오늘 예정된 방문 일정이 없습니다.")
+    
+    # 2. 통계 지표 (표 아래로 배치)
+    st.markdown("---")
     m1, m2, m3 = st.columns(3)
     
-    total_count = len(df_filtered)
-    today_count = len(df_filtered[df_filtered["parsed_date"].dt.date == datetime.now().date()])
+    total_count = len(df_main)
+    today_count = len(today_df)
     
     with m1:
         st.metric(label="전체 조회 건수", value=f"{total_count}건")
@@ -196,66 +251,77 @@ if not df_filtered.empty:
         st.metric(label="오늘 일정", value=f"{today_count}건", delta=f"기준: {datetime.now().strftime('%m-%d')}")
     with m3:
         st.metric(label="선택된 매장", value=selected_store)
-        
+
     st.markdown("---")
 
 # -------------------------
-# TABS & DISPLAY (모바일 최적화: hide_index=True)
+# TABS & DISPLAY
 # -------------------------
 
 link_target_indices = [5, 14, 15, 16]
 column_config_settings = {}
 
-if not df_filtered.empty:
-    for idx in link_target_indices:
-        if idx < len(df_filtered.columns):
-            col_name = df_filtered.columns[idx]
-            column_config_settings[col_name] = st.column_config.LinkColumn(
-                label=col_name,
-                display_text="🔗 바로가기"
-            )
+# 링크 설정은 전체 컬럼 기준으로
+for idx in link_target_indices:
+    if len(df.columns) > idx:
+        col_name = df.columns[idx]
+        column_config_settings[col_name] = st.column_config.LinkColumn(
+            label=col_name,
+            display_text="🔗 바로가기"
+        )
 
+# [권한 체크 및 탭 설정]
 if current_user == "admin":
-    tab_list = ["📅 일정현황", "📝 방문결과", "📊 관리현황"]
+    # 접수현황 탭 추가
+    tab_list = ["📅 일정현황", "📝 방문결과", "📊 관리현황", "📥 접수현황"]
 else:
     tab_list = ["📅 일정현황", "📝 방문결과"]
 
 tabs = st.tabs(tab_list)
 
-if not df_filtered.empty:
-    # --- 1. 일정현황 ---
+# --- 1. 일정현황 (df_main 사용) ---
+if len(tabs) > 0:
     with tabs[0]:
         st.subheader("📅 일정 리스트")
-        target_indices = [8, 9, 2, 10, 4, 5, 6] 
-        st.dataframe(
-            df_filtered.iloc[:, target_indices], 
-            column_config=column_config_settings,
-            use_container_width=True,
-            hide_index=True  # [모바일 최적화] 왼쪽 숫자 제거로 공간 확보
-        )
+        if not df_main.empty:
+            target_indices = [8, 9, 2, 10, 4, 5, 6] 
+            st.dataframe(
+                df_main.iloc[:, target_indices], 
+                column_config=column_config_settings,
+                use_container_width=True,
+                hide_index=True
+            )
+        else:
+            st.info("조회된 일정이 없습니다.")
 
-    # --- 2. 방문결과 ---
+# --- 2. 방문결과 (df_main 사용) ---
+if len(tabs) > 1:
     with tabs[1]:
         st.subheader("📝 결과 리포트")
-        target_indices = [8, 14, 10, 17, 15, 16]
-        st.dataframe(
-            df_filtered.iloc[:, target_indices], 
-            column_config=column_config_settings,
-            use_container_width=True,
-            hide_index=True  # [모바일 최적화]
-        )
+        if not df_main.empty:
+            # 방문결과 탭: 날짜(I/8), 이름(C/2), SNS포스팅(O/14), 선택키워드(K/10), 노출키워드(R/17), 맘카페(P/15), 기타(Q/16)
+            target_indices = [8, 2, 14, 10, 17, 15, 16]
+            st.dataframe(
+                df_main.iloc[:, target_indices], 
+                column_config=column_config_settings,
+                use_container_width=True,
+                hide_index=True
+            )
+        else:
+            st.info("조회된 결과가 없습니다.")
 
-    # --- 3. 관리현황 (Admin Only) ---
-    if current_user == "admin":
-        with tabs[2]:
-            target_indices = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
-            admin_df = df_filtered.iloc[:, target_indices]
+if current_user == "admin":
+    # --- 3. 관리현황 (df_main 사용) ---
+    with tabs[2]:
+        header_col, metric_col = st.columns([1, 4]) 
+        with header_col:
+            st.subheader("📊 상세 관리")
+        
+        if not df_main.empty:
+            # 관리현황: I(8) / J(9) / C(2) / K(10) / L(11) / M(12) / N(13) / O(14) / R(17) / P(15) / Q(16)
+            target_indices = [8, 9, 2, 10, 11, 12, 13, 14, 17, 15, 16]
+            admin_df = df_main.iloc[:, target_indices]
 
-            header_col, metric_col = st.columns([1, 4]) 
-            
-            with header_col:
-                st.subheader("📊 상세 관리")
-            
             with metric_col:
                 null_counts = admin_df.isnull().sum()
                 pending_tasks = null_counts[null_counts > 0]
@@ -271,13 +337,57 @@ if not df_filtered.empty:
                                 delta_color="inverse"
                             )
                 else:
-                    st.success("✅ 모든 항목이 빠짐없이 입력되었습니다! (미처리 업무 없음)")
+                    st.success("✅ 모든 항목이 입력되었습니다!")
 
             st.dataframe(
                 admin_df, 
                 column_config=column_config_settings,
                 use_container_width=True,
-                hide_index=True  # [모바일 최적화]
+                hide_index=True
             )
-else:
-    st.warning("⚠️ 선택하신 조건에 맞는 데이터가 없습니다. 필터를 변경해 보세요.")
+        else:
+             st.info("조회된 데이터가 없습니다.")
+
+    # --- 4. 접수현황 (df_store 사용: 날짜 필터 무시) ---
+    with tabs[3]:
+        # 레이아웃: 제목 + 요약 지표
+        header_col, metric_col = st.columns([1, 4])
+        with header_col:
+            st.subheader("📥 접수 현황")
+        
+        col_h_name = df.columns[7] # H열 (선정여부/안내 등)
+        
+        # 카운팅 로직
+        pending_advice_count = len(df_store[
+            (df_store[col_h_name] == "안내") & 
+            (df_store["parsed_date"].isna())
+        ])
+        
+        with metric_col:
+            if pending_advice_count > 0:
+                st.metric(
+                    label="📌 미확정 접수 건 (안내+날짜미정)",
+                    value=f"{pending_advice_count}건",
+                    delta="일정 확정 필요",
+                    delta_color="inverse"
+                )
+            else:
+                st.success("✅ 미확정된 접수 건이 없습니다.")
+
+        # 표 필터링: '선정여부'(H열)가 '안내'인 것만 표시
+        if not df_store.empty:
+            df_reception = df_store[df_store[col_h_name] == "안내"].copy()
+            
+            target_indices_4 = [0, 2, 3, 4, 5, 6, 7, 8]
+            
+            if not df_reception.empty:
+                st.dataframe(
+                    df_reception.iloc[:, target_indices_4],
+                    column_config=column_config_settings,
+                    use_container_width=True,
+                    hide_index=True
+                )
+            else:
+                st.info("표시할 '안내' 상태의 데이터가 없습니다.")
+        else:
+            st.info("접수된 데이터가 없습니다.")

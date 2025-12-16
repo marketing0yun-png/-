@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 # -------------------------
 # 1. 페이지 기본 설정
@@ -11,6 +11,9 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="auto"
 )
+
+# [수정] 한국 시간(KST) 설정 (UTC+9)
+KST = timezone(timedelta(hours=9))
 
 # 제목
 st.markdown("## 📊 체험단 운영/관리 대시보드")
@@ -118,7 +121,8 @@ if len(df.columns) >= 17:
         parsed = pd.to_datetime(val, errors="coerce")
         if pd.notna(parsed): return parsed
         try:
-            current_year = datetime.now().year
+            # [수정] 현재 연도 계산 시 KST 기준 적용
+            current_year = datetime.now(KST).year
             parsed = pd.to_datetime(f"{current_year}/" + val, format="%Y/%m/%d", errors="coerce")
             return parsed
         except:
@@ -210,12 +214,16 @@ else:
 if not df_main.empty:
     st.markdown("### 📈 현황 요약")
 
-    # 1. 오늘 데이터 필터링
-    today_df = df_main[df_main["parsed_date"].dt.date == datetime.now().date()]
+    # 1. 오늘 데이터 필터링 (KST 기준 날짜 사용)
+    today_date_kst = datetime.now(KST).date()
+    today_df = df_main[df_main["parsed_date"].dt.date == today_date_kst]
     
-    # [요청사항 수정] 오늘 일정을 최상단에, 펼쳐진 상태(expander X)로 배치
+    # [요청사항 수정] 오늘 일정을 최상단에, 펼쳐진 상태(expander X)로 배치 + 날짜 표시
     if not today_df.empty:
-        st.markdown(f"**📋 오늘 방문 일정 ({len(today_df)}건)**")
+        # 날짜 포맷팅 (YYYY.MM.DD)
+        today_str = today_date_kst.strftime("%Y.%m.%d")
+        
+        st.markdown(f"**📋 오늘 방문 일정 ({len(today_df)}건) | 기준일자: {today_str}**")
         
         # 순서 변경: 시간(J/9) -> 이름(C/2) -> 참여유형(E/4) -> 선택키워드(K/10)
         today_details_indices = [9, 2, 4, 10]
@@ -236,7 +244,7 @@ if not df_main.empty:
             hide_index=True
         )
     else:
-        st.info("📌 오늘 예정된 방문 일정이 없습니다.")
+        st.info(f"📌 {today_date_kst.strftime('%Y-%m-%d')} 기준, 예정된 방문 일정이 없습니다.")
     
     # 2. 통계 지표 (표 아래로 배치)
     st.markdown("---")
@@ -248,7 +256,8 @@ if not df_main.empty:
     with m1:
         st.metric(label="전체 조회 건수", value=f"{total_count}건")
     with m2:
-        st.metric(label="오늘 일정", value=f"{today_count}건", delta=f"기준: {datetime.now().strftime('%m-%d')}")
+        # [수정] 기준 시간 표시도 KST로
+        st.metric(label="오늘 일정", value=f"{today_count}건", delta=f"기준: {datetime.now(KST).strftime('%m-%d')}")
     with m3:
         st.metric(label="선택된 매장", value=selected_store)
 

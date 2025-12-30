@@ -111,20 +111,35 @@ with st.sidebar:
 # DATA PRE-PROCESSING & FILTERING
 # -------------------------
 
-if len(df.columns) >= 17:
-    # 1. 날짜 컬럼 (I열, Index 8) 파싱 - *NaN 제거하지 않고 살려둠*
-    date_col_name = df.columns[8]
-
+# 1. 날짜 컬럼 (I열, Index 8) 파싱 함수 수정
     def parse_date(val):
         if pd.isna(val): return pd.NaT
         val = str(val).strip()
+        
+        # 1) YYYY-MM-DD 등 연도가 포함된 형식이면 바로 변환
         parsed = pd.to_datetime(val, errors="coerce")
         if pd.notna(parsed): return parsed
+
+        # 2) 날짜만 있는 경우 (예: "1/5", "12/25") 처리
         try:
-            # [수정] 현재 연도 계산 시 KST 기준 적용
-            current_year = datetime.now(KST).year
+            now_kst = datetime.now(KST)
+            current_year = now_kst.year
+            
+            # 일단 현재 연도 기준으로 날짜 생성
             parsed = pd.to_datetime(f"{current_year}/" + val, format="%Y/%m/%d", errors="coerce")
-            return parsed
+            
+            # [수정된 로직] 해 넘김 자동 인식
+            if pd.notna(parsed):
+                # 현재가 11~12월인데, 입력된 날짜가 1~2월이면 -> '내년'으로 처리
+                if now_kst.month >= 11 and parsed.month <= 2:
+                    parsed = parsed.replace(year=current_year + 1)
+                
+                # (선택사항) 현재가 1~2월인데, 입력된 날짜가 11~12월이면 -> '작년'으로 처리
+                # elif now_kst.month <= 2 and parsed.month >= 11:
+                #     parsed = parsed.replace(year=current_year - 1)
+                
+                return parsed
+            return pd.NaT
         except:
             return pd.NaT
 
@@ -400,3 +415,4 @@ if current_user == "admin":
                 st.info("표시할 '안내' 상태의 데이터가 없습니다.")
         else:
             st.info("접수된 데이터가 없습니다.")
+

@@ -110,7 +110,7 @@ with st.sidebar:
 # -------------------------
 # DATA PRE-PROCESSING & FILTERING
 # -------------------------
-
+if len(df.columns) >= 18:
 # 1. 날짜 컬럼 (I열, Index 8) 파싱 함수 수정
     def parse_date(val):
         if pd.isna(val): return pd.NaT
@@ -415,4 +415,5 @@ if current_user == "admin":
                 st.info("표시할 '안내' 상태의 데이터가 없습니다.")
         else:
             st.info("접수된 데이터가 없습니다.")
+
 

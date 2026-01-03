@@ -110,8 +110,11 @@ with st.sidebar:
 # -------------------------
 # DATA PRE-PROCESSING & FILTERING
 # -------------------------
+
+# [수정] 컬럼 개수 확인 (If 문 시작)
 if len(df.columns) >= 18:
-# 1. 날짜 컬럼 (I열, Index 8) 파싱 함수 수정
+    
+    # 1. 날짜 컬럼 (I열, Index 8) 파싱 함수 수정
     def parse_date(val):
         if pd.isna(val): return pd.NaT
         val = str(val).strip()
@@ -144,6 +147,9 @@ if len(df.columns) >= 18:
             return pd.NaT
 
     df["parsed_date"] = df.iloc[:, 8].apply(parse_date)
+    
+    # [수정] date_col_name 변수 정의 추가 (NameError 방지)
+    date_col_name = df.columns[8] 
     df[date_col_name] = df["parsed_date"].dt.strftime("%Y-%m-%d")
 
     # 2. [요청반영] A열 (Index 0) 날짜 형식 변환 (시간 제거, YYYY-MM-DD)
@@ -217,8 +223,8 @@ if len(df.columns) >= 18:
     df_store.reset_index(drop=True, inplace=True)
     df_store.index = df_store.index + 1
 
-else:
-    st.error("데이터 컬럼 부족")
+else: # [여기가 아까 에러났던 else 부분]
+    st.error("데이터 컬럼 부족 (최소 18개 열이 필요합니다)")
     df_main = pd.DataFrame()
     df_store = pd.DataFrame()
 
@@ -415,5 +421,3 @@ if current_user == "admin":
                 st.info("표시할 '안내' 상태의 데이터가 없습니다.")
         else:
             st.info("접수된 데이터가 없습니다.")
-
-
